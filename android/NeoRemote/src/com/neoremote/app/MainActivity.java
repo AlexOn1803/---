@@ -233,8 +233,8 @@ public class MainActivity extends Activity implements NeoBle.Listener {
 
         // --- вкладки (рівні частини ширини, без прокрутки)
         LinearLayout tabRow = new LinearLayout(this);
-        String[] names = {"Керування", "Режими", "Дотик", "Звук"};
-        float[] weights = {1.35f, 1.1f, 1f, 0.9f};
+        String[] names = {"Керування", "Вбудовані", "Режими", "Дотик", "Звук"};
+        float[] weights = {1.3f, 1.25f, 1.05f, 0.95f, 0.85f};
         for (int i = 0; i < names.length; i++) {
             final int idx = i;
             TextView t = Ui.text(this, names[i], 13, Ui.TEXT, true);
@@ -254,6 +254,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         // --- сторінки
         FrameLayout content = new FrameLayout(this);
         pages.add(buildManualPage());
+        pages.add(buildBuiltinPage());
         pages.add(buildPatternsPage());
         pages.add(buildTouchPage());
         pages.add(buildSoundPage());
@@ -382,10 +383,9 @@ public class MainActivity extends Activity implements NeoBle.Listener {
 
     // ---------------------------------------------------------------- Режими
 
-    private View buildPatternsPage() {
+    private View buildBuiltinPage() {
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-
         // --- вбудовані режими іграшки
         LinearLayout bc = card();
         bc.addView(Ui.text(this, "Вбудовані режими іграшки", 15, Ui.TEXT, true));
@@ -428,7 +428,18 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         bc.addView(bs, lpm(-1, dp(40), 0, 2, 0, 0));
         col.addView(bc, lp(-1, -2));
 
-        col.addView(Ui.text(this, "Режими додатка", 15, Ui.TEXT, true), lpm(-2, -2, 4, 18, 0, 8));
+        TextView hint = Ui.text(this,
+                "Режими працюють усередині іграшки. Натисніть ще раз на активний режим або СТОП, щоб вимкнути.",
+                12, Ui.TEXT_DIM, false);
+        col.addView(hint, lpm(-1, -2, 4, 12, 4, 0));
+        updatePatternButtons();
+        return scroll(col);
+    }
+
+    private View buildPatternsPage() {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+
         LinearLayout c = card();
         c.addView(Ui.text(this, "Сила режиму", 14, Ui.TEXT, true));
         final TextView mv = Ui.text(this, masterPct + "%", 13, Ui.TEXT_DIM, false);
