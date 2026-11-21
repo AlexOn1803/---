@@ -16,7 +16,6 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowManager;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.FrameLayout;
@@ -43,12 +42,18 @@ public class MainActivity extends Activity implements NeoBle.Listener {
     private static final int REQ_BLE = 1;
     private static final int REQ_MIC = 2;
     private static final int REQ_BT_ON = 3;
+    private static final int REQ_NOTIF = 4;
     private static final int RANDOM_IDX = 100;
     private static final long ENGINE_MS = 50;
 
     private final Handler h = new Handler(Looper.getMainLooper());
     private final Random rnd = new Random();
     private final SoundMeter sound = new SoundMeter();
+    private final MusicMeter music = new MusicMeter();
+    private boolean musicSource = false;   // false = мікрофон, true = музика на телефоні
+    private int minPct = 0, maxPct = 100;  // межі сили, %
+    private TextView srcMicBtn, srcMusicBtn, soundHint, sensTitle;
+    private boolean askedNotif = false;
     private NeoBle ble;
     private SharedPreferences prefs;
 
@@ -96,6 +101,12 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         getWindow().setNavigationBarColor(Ui.BG);
         ble = new NeoBle(this, this);
         ble.setKeepAlive(true);
+        minPct = prefs.getInt("minPct", 0);
+        maxPct = prefs.getInt("maxPct", 100);
+        musicSource = prefs.getBoolean("musicSrc", false);
+        NeoService.stopListener = new Runnable() {
+            @Override public void run() { h.post(new Runnable() { @Override public void run() { stopAll(); } }); }
+        };
         setContentView(buildUi());
         showPage(0);
         h.post(engine);
@@ -105,7 +116,10 @@ public class MainActivity extends Activity implements NeoBle.Listener {
 
     @Override protected void onDestroy() {
         h.removeCallbacksAndMessages(null);
+        NeoService.stopListener = null;
+        NeoService.stop(this);
         sound.stop();
+        music.stop();
         ble.release();
         super.onDestroy();
     }
@@ -136,21 +150,38 @@ public class MainActivity extends Activity implements NeoBle.Listener {
                     pct = pad.sample();
                     break;
                 case MODE_SOUND:
-                    pct = sound.value();
-                    if (micLevel != null) micLevel.setText("Гучність → " + pct + "%");
+                    pct = musicSource ? music.value() : sound.value();
+                    if (micLevel != null) micLevel.setText((musicSource ? "Музика" : "Гучність") + " → " + pct + "%");
                     break;
                 case MODE_BUILTIN:
                     // вбудований режим працює в самій іграшці; на графіку показуємо його силу
-                    wave.push(builtinStrength * 10, "Вбудований режим " + builtinIdx + ", сила " + builtinStrength);
+                    int bs = effectiveBuiltinStrength();
+                    wave.push(bs * 10, "Вбудований режим " + builtinIdx + ", сила " + bs);
                     return;
                 default:
                     break;
             }
-            int v = toPower(pct);
+            int out = limit(pct);
+            int v = toPower(out);
             ble.setPower(v);
-            wave.push(pct, "Сила на іграшці: " + v + " / " + NeoBle.MAX_POWER);
+            wave.push(out, "Сила на іграшці: " + v + " / " + NeoBle.MAX_POWER
+                    + (minPct > 0 || maxPct < 100 ? "   (межі " + minPct + "–" + maxPct + "%)" : ""));
         }
     };
+
+    /** Застосовує межі сили: 0 лишається 0, решта стискається в [мін, макс]. */
+    int limit(int pct) {
+        if (pct <= 0) return 0;
+        int lo = Math.min(minPct, maxPct), hi = Math.max(minPct, maxPct);
+        int v = lo + Math.round((hi - lo) * Math.min(100, pct) / 100f);
+        return Math.max(1, v);
+    }
+
+    /** Сила вбудованого режиму 1..10 з урахуванням максимуму. */
+    int effectiveBuiltinStrength() {
+        int cap = Math.max(1, Math.round(maxPct / 10f));
+        return Math.max(1, Math.min(builtinStrength, cap));
+    }
 
     /** 0..100 % → 0..255 */
     static int toPower(int pct) {
@@ -161,7 +192,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
     private void setMode(int m) {
         if (mode == MODE_SOUND && m != MODE_SOUND) {
             sound.stop();
-            updateMicBtn();
+            music.stop();
         }
         if (m != MODE_PATTERN) {
             patternIdx = -1;
@@ -176,8 +207,35 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         updateLoopBtn();
         updateManualUi();
         updatePatternButtons();
-        if (m == MODE_NONE) getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        else getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        updateMicBtn();
+        updateService();
+    }
+
+    /** Сповіщення + робота з вимкненим екраном, поки щось активне і іграшка підключена. */
+    private void updateService() {
+        if (mode == MODE_NONE || !ble.isReady()) {
+            NeoService.stop(this);
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 33 && !askedNotif
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            askedNotif = true;
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIF);
+        }
+        NeoService.update(this, describeMode(), mode == MODE_SOUND && !musicSource);
+    }
+
+    private String describeMode() {
+        switch (mode) {
+            case MODE_MANUAL: return "Керування: " + manualPct + "%";
+            case MODE_PATTERN:
+                return patternIdx == RANDOM_IDX ? "Режим: випадкова гра"
+                        : "Режим: " + (patternIdx >= 0 ? Patterns.NAMES[patternIdx] : "");
+            case MODE_TOUCH: return "Дотик";
+            case MODE_SOUND: return musicSource ? "Музика на телефоні" : "Звук з мікрофона";
+            case MODE_BUILTIN: return "Вбудований режим " + builtinIdx;
+            default: return "";
+        }
     }
 
     private void stopAll() {
@@ -364,18 +422,63 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         });
         col.addView(manualStart, lpm(-1, dp(64), 0, 12, 0, 0));
 
-        TextView note = Ui.text(this,
-                "Сила плавна: 0–100 % на повзунку = 0–255 на іграшці (як у режимі «Дотик» фірмового додатка).",
-                12, Ui.TEXT_DIM, false);
-        col.addView(note, lpm(-1, -2, 4, 12, 4, 0));
+        col.addView(buildLimitsCard(), lpm(-1, -2, 0, 14, 0, 0));
         updateManualUi();
         return scroll(col);
+    }
+
+    private View buildLimitsCard() {
+        LinearLayout c = card();
+        c.addView(Ui.text(this, "Межі сили", 15, Ui.TEXT, true));
+        c.addView(Ui.text(this, "Діють на всі вкладки: повзунок, режими, дотик, звук. "
+                + "Максимум обмежує й вбудовані режими.", 12, Ui.TEXT_DIM, false));
+        final TextView minT = Ui.text(this, "", 13, Ui.TEXT, false);
+        final TextView maxT = Ui.text(this, "", 13, Ui.TEXT, false);
+        final SeekBar minS = Ui.seek(this, 100, minPct);
+        final SeekBar maxS = Ui.seek(this, 100, maxPct);
+        minT.setText("Мінімум: " + minPct + "%");
+        maxT.setText("Максимум: " + maxPct + "%");
+        minS.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean user) {
+                if (!user) return;
+                if (p > maxPct) { maxPct = p; maxS.setProgress(p); maxT.setText("Максимум: " + p + "%"); }
+                minPct = p;
+                minT.setText("Мінімум: " + p + "%");
+                saveLimits();
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) { }
+            @Override public void onStopTrackingTouch(SeekBar sb) { }
+        });
+        maxS.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean user) {
+                if (!user) return;
+                if (p < 1) { p = 1; sb.setProgress(1); }
+                if (p < minPct) { minPct = p; minS.setProgress(p); minT.setText("Мінімум: " + p + "%"); }
+                maxPct = p;
+                maxT.setText("Максимум: " + p + "%");
+                saveLimits();
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) { }
+            @Override public void onStopTrackingTouch(SeekBar sb) { }
+        });
+        c.addView(minT, lpm(-2, -2, 0, 12, 0, 0));
+        c.addView(minS, lpm(-1, dp(40), 0, 2, 0, 0));
+        c.addView(maxT, lpm(-2, -2, 0, 8, 0, 0));
+        c.addView(maxS, lpm(-1, dp(40), 0, 2, 0, 0));
+        return c;
+    }
+
+    private void saveLimits() {
+        prefs.edit().putInt("minPct", minPct).putInt("maxPct", maxPct).apply();
+        updateManualUi();
+        if (mode == MODE_BUILTIN && builtinIdx > 0) ble.setBuiltinMode(builtinIdx, effectiveBuiltinStrength());
     }
 
     private void updateManualUi() {
         if (manualBig == null) return;
         manualBig.setText(manualPct + "%");
-        manualSub.setText("сила " + toPower(manualPct) + " з " + NeoBle.MAX_POWER);
+        manualSub.setText("на іграшці: " + toPower(limit(manualPct)) + " з " + NeoBle.MAX_POWER
+                + (minPct > 0 || maxPct < 100 ? "  (з урахуванням меж)" : ""));
         boolean on = mode == MODE_MANUAL;
         manualStart.setText(on ? "❚❚  ПАУЗА" : "▶  СТАРТ");
         Ui.bg(manualStart, on ? Ui.CARD_HI : Ui.ACCENT, on ? Ui.ACCENT : 0, 32);
@@ -420,7 +523,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
                 builtinStrength = p + 1;
                 bsv.setText("Сила вбудованого режиму: " + builtinStrength + " з 10 (у Svakom завжди 5)");
                 prefs.edit().putInt("bstrength", builtinStrength).apply();
-                if (mode == MODE_BUILTIN && builtinIdx > 0) ble.setBuiltinMode(builtinIdx, builtinStrength);
+                if (mode == MODE_BUILTIN && builtinIdx > 0) ble.setBuiltinMode(builtinIdx, effectiveBuiltinStrength());
             }
             @Override public void onStartTrackingTouch(SeekBar sb) { }
             @Override public void onStopTrackingTouch(SeekBar sb) { }
@@ -510,8 +613,9 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         }
         setMode(MODE_BUILTIN);
         builtinIdx = idx;
-        ble.setBuiltinMode(idx, builtinStrength);
+        ble.setBuiltinMode(idx, effectiveBuiltinStrength());
         updatePatternButtons();
+        updateService();
     }
 
     private void togglePattern(int idx) {
@@ -524,6 +628,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         pattern = idx == RANDOM_IDX ? Patterns.random(rnd) : Patterns.get(idx);
         patPos = 0;
         updatePatternButtons();
+        updateService();
     }
 
     private void updatePatternButtons() {
@@ -601,11 +706,28 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         col.setOrientation(LinearLayout.VERTICAL);
         col.setGravity(Gravity.CENTER_HORIZONTAL);
 
-        TextView hint = Ui.text(this,
-                "Гучність навколишнього звуку (музика, голос) керує силою і ритмом іграшки.",
-                14, Ui.TEXT, true);
-        hint.setGravity(Gravity.CENTER);
-        col.addView(hint, lpm(-1, -2, 8, 8, 8, 0));
+        LinearLayout src = new LinearLayout(this);
+        srcMicBtn = Ui.button(this, "🎤  Мікрофон", Ui.CARD, Ui.ACCENT_DIM);
+        srcMusicBtn = Ui.button(this, "🎵  Музика телефону", Ui.CARD, Ui.ACCENT_DIM);
+        srcMicBtn.setTextSize(13);
+        srcMusicBtn.setTextSize(13);
+        srcMicBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { setSoundSource(false); }
+        });
+        srcMusicBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { setSoundSource(true); }
+        });
+        LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, dp(50), 1);
+        p1.setMargins(0, 0, dp(5), 0);
+        LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, dp(50), 1);
+        p2.setMargins(dp(5), 0, 0, 0);
+        src.addView(srcMicBtn, p1);
+        src.addView(srcMusicBtn, p2);
+        col.addView(src, lp(-1, -2));
+
+        soundHint = Ui.text(this, "", 14, Ui.TEXT, true);
+        soundHint.setGravity(Gravity.CENTER);
+        col.addView(soundHint, lpm(-1, -2, 8, 14, 8, 0));
 
         micBtn = Ui.text(this, "", 40, Ui.TEXT, false);
         micBtn.setGravity(Gravity.CENTER);
@@ -613,20 +735,23 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         micBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { toggleMic(); }
         });
-        col.addView(micBtn, lpm(dp(150), dp(150), 0, 24, 0, 0));
+        col.addView(micBtn, lpm(dp(140), dp(140), 0, 18, 0, 0));
 
         micLevel = Ui.text(this, "", 14, Ui.TEXT_DIM, false);
         micLevel.setGravity(Gravity.CENTER);
-        col.addView(micLevel, lpm(-1, -2, 0, 14, 0, 0));
+        col.addView(micLevel, lpm(-1, -2, 0, 12, 0, 0));
 
         LinearLayout c = card();
-        c.addView(Ui.text(this, "Чутливість мікрофона", 15, Ui.TEXT, true));
+        sensTitle = Ui.text(this, "Чутливість", 15, Ui.TEXT, true);
+        c.addView(sensTitle);
         int sens = prefs.getInt("sens", 60);
         sound.setSensitivity(sens / 100f);
+        music.setSensitivity(sens / 100f);
         SeekBar s = Ui.seek(this, 100, sens);
         s.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar sb, int p, boolean user) {
                 sound.setSensitivity(p / 100f);
+                music.setSensitivity(p / 100f);
                 prefs.edit().putInt("sens", p).apply();
             }
             @Override public void onStartTrackingTouch(SeekBar sb) { }
@@ -640,9 +765,19 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         scale.addView(a, new LinearLayout.LayoutParams(0, -2, 1));
         scale.addView(b, new LinearLayout.LayoutParams(0, -2, 1));
         c.addView(scale);
-        col.addView(c, lpm(-1, -2, 0, 24, 0, 0));
+        col.addView(c, lpm(-1, -2, 0, 20, 0, 0));
         updateMicBtn();
         return scroll(col);
+    }
+
+    private void setSoundSource(boolean musicSrc) {
+        if (musicSrc == musicSource) return;
+        boolean wasOn = mode == MODE_SOUND;
+        if (wasOn) setMode(MODE_NONE);
+        musicSource = musicSrc;
+        prefs.edit().putBoolean("musicSrc", musicSrc).apply();
+        updateMicBtn();
+        if (wasOn) toggleMic();
     }
 
     private void toggleMic() {
@@ -655,20 +790,28 @@ public class MainActivity extends Activity implements NeoBle.Listener {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_MIC);
             return;
         }
-        if (!sound.start()) {
-            toast("Не вдалося увімкнути мікрофон");
+        boolean ok = musicSource ? music.start() : sound.start();
+        if (!ok) {
+            toast(musicSource ? "Цей телефон не дає слухати музику з інших додатків" : "Не вдалося увімкнути мікрофон");
             return;
         }
         setMode(MODE_SOUND);
-        updateMicBtn();
     }
 
     private void updateMicBtn() {
         if (micBtn == null) return;
         boolean on = mode == MODE_SOUND;
-        micBtn.setText(on ? "🎙" : "🎤");
-        micBtn.setBackground(Ui.roundStroke(this, on ? Ui.CARD_HI : Ui.CARD, on ? Ui.ACCENT : Ui.ACCENT_DIM, 75));
-        micLevel.setText(on ? "Слухаю…" : "Натисніть, щоб увімкнути");
+        micBtn.setText(musicSource ? (on ? "🎶" : "🎵") : (on ? "🎙" : "🎤"));
+        micBtn.setBackground(Ui.roundStroke(this, on ? Ui.CARD_HI : Ui.CARD, on ? Ui.ACCENT : Ui.ACCENT_DIM, 70));
+        micLevel.setText(on ? (musicSource ? "Слухаю музику…" : "Слухаю…") : "Натисніть, щоб увімкнути");
+        soundHint.setText(musicSource
+                ? "Іграшка рухається в такт музиці, що грає на телефоні: Spotify, YouTube, будь-який плеєр."
+                : "Гучність навколишнього звуку (музика, голос) керує силою і ритмом іграшки.");
+        sensTitle.setText(musicSource ? "Чутливість до музики" : "Чутливість мікрофона");
+        Ui.bg(srcMicBtn, !musicSource ? Ui.CARD_HI : Ui.CARD, !musicSource ? Ui.ACCENT : Ui.ACCENT_DIM, 16);
+        Ui.bg(srcMusicBtn, musicSource ? Ui.CARD_HI : Ui.CARD, musicSource ? Ui.ACCENT : Ui.ACCENT_DIM, 16);
+        srcMicBtn.setTextColor(!musicSource ? Ui.ACCENT_LIGHT : Ui.TEXT);
+        srcMusicBtn.setTextColor(musicSource ? Ui.ACCENT_LIGHT : Ui.TEXT);
     }
 
     // ================================================================ Bluetooth
@@ -805,6 +948,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         connectBtn.setText(btn);
         Ui.bg(connectBtn, state == NeoBle.ST_READY ? Ui.CARD_HI : Ui.ACCENT,
                 state == NeoBle.ST_READY ? Ui.ACCENT_DIM : 0, 16);
+        updateService();
         if (state == NeoBle.ST_READY && ble.deviceAddress() != null) {
             prefs.edit().putString("addr", ble.deviceAddress()).apply();
             toast(text);
@@ -831,7 +975,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         pendingAfterPerms = null;
         if (ok && next != null) {
             next.run();
-        } else if (!ok) {
+        } else if (!ok && code != REQ_NOTIF) {
             toast(code == REQ_MIC
                     ? "Без доступу до мікрофона режим «Звук» не працює"
                     : "Без дозволу на Bluetooth підключитися не вийде");
