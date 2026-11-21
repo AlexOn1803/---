@@ -13,14 +13,12 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -81,11 +79,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
     private TouchPadView pad;
     private TextView loopBtn;
     private TextView micBtn, micLevel;
-    private TextView keepAliveBtn;
-    private TextView logView;
-    private ScrollView logScroll;
-    private final StringBuilder log = new StringBuilder();
-    private int logLines = 0;
 
     // вибір пристрою
     private AlertDialog picker;
@@ -102,7 +95,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         getWindow().setStatusBarColor(Ui.BG);
         getWindow().setNavigationBarColor(Ui.BG);
         ble = new NeoBle(this, this);
-        ble.setKeepAlive(prefs.getBoolean("keepalive", true));
+        ble.setKeepAlive(true);
         setContentView(buildUi());
         showPage(0);
         h.post(engine);
@@ -240,8 +233,8 @@ public class MainActivity extends Activity implements NeoBle.Listener {
 
         // --- вкладки (рівні частини ширини, без прокрутки)
         LinearLayout tabRow = new LinearLayout(this);
-        String[] names = {"Керування", "Режими", "Дотик", "Звук", "Ще"};
-        float[] weights = {1.45f, 1.15f, 1f, 0.9f, 0.7f};
+        String[] names = {"Керування", "Режими", "Дотик", "Звук"};
+        float[] weights = {1.35f, 1.1f, 1f, 0.9f};
         for (int i = 0; i < names.length; i++) {
             final int idx = i;
             TextView t = Ui.text(this, names[i], 13, Ui.TEXT, true);
@@ -264,7 +257,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         pages.add(buildPatternsPage());
         pages.add(buildTouchPage());
         pages.add(buildSoundPage());
-        pages.add(buildMorePage());
         for (View p : pages) content.addView(p, new FrameLayout.LayoutParams(-1, -1));
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
 
@@ -668,109 +660,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         micLevel.setText(on ? "Слухаю…" : "Натисніть, щоб увімкнути");
     }
 
-    // ---------------------------------------------------------------- Ще
-
-    private View buildMorePage() {
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-
-        keepAliveBtn = Ui.button(this, "", Ui.CARD, Ui.ACCENT_DIM);
-        keepAliveBtn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        keepAliveBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                ble.setKeepAlive(!ble.getKeepAlive());
-                prefs.edit().putBoolean("keepalive", ble.getKeepAlive()).apply();
-                updateKeepAlive();
-            }
-        });
-        col.addView(keepAliveBtn, lp(-1, -2));
-        updateKeepAlive();
-
-        TextView forget = Ui.button(this, "Забути збережену іграшку", Ui.CARD, Ui.ACCENT_DIM);
-        forget.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        forget.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                prefs.edit().remove("addr").apply();
-                toast("Збережену іграшку забуто");
-            }
-        });
-        col.addView(forget, lpm(-1, -2, 0, 8, 0, 0));
-
-        LinearLayout c = card();
-        c.addView(Ui.text(this, "Перевірка команд", 15, Ui.TEXT, true));
-        c.addView(Ui.text(this, "Пряме надсилання команд без режимів", 12, Ui.TEXT_DIM, false));
-        LinearLayout row = new LinearLayout(this);
-        final String[] tl = {"Стоп", "25%", "50%", "100%", "🔋"};
-        final byte[][] tc = {NeoBle.STOP_POWER, NeoBle.powerCmd(64), NeoBle.powerCmd(128), NeoBle.powerCmd(255),
-                NeoBle.READ_BATTERY};
-        for (int i = 0; i < tl.length; i++) {
-            final int k = i;
-            TextView b = Ui.button(this, tl[i], Ui.CARD_HI, 0);
-            b.setPadding(0, dp(12), 0, dp(12));
-            b.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    setMode(MODE_NONE);
-                    if (k == 0) ble.stopNow(); else ble.sendRaw(tc[k]);
-                }
-            });
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(46), 1);
-            p.setMargins(i == 0 ? 0 : dp(3), 0, i == tl.length - 1 ? 0 : dp(3), 0);
-            row.addView(b, p);
-        }
-        c.addView(row, lpm(-1, -2, 0, 10, 0, 0));
-
-        c.addView(Ui.text(this, "Своя команда (HEX)", 13, Ui.TEXT, true), lpm(-2, -2, 0, 14, 0, 0));
-        LinearLayout hexRow = new LinearLayout(this);
-        hexRow.setGravity(Gravity.CENTER_VERTICAL);
-        final EditText hex = new EditText(this);
-        hex.setText(prefs.getString("hex2", "55 04 00 00 00 80 AA"));
-        hex.setTextColor(Ui.TEXT);
-        hex.setHintTextColor(Ui.TEXT_DIM);
-        hex.setSingleLine(true);
-        hex.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        hex.setBackground(Ui.round(this, Ui.BG, 10));
-        hex.setPadding(dp(10), dp(10), dp(10), dp(10));
-        hexRow.addView(hex, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView send = Ui.button(this, "Надіслати", Ui.ACCENT, 0);
-        send.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                byte[] data = NeoBle.parseHex(hex.getText().toString());
-                if (data == null) { toast("Неправильний HEX"); return; }
-                prefs.edit().putString("hex2", hex.getText().toString()).apply();
-                setMode(MODE_NONE);
-                ble.sendRaw(data);
-            }
-        });
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-2, -2);
-        sp.setMargins(dp(8), 0, 0, 0);
-        hexRow.addView(send, sp);
-        c.addView(hexRow, lpm(-1, -2, 0, 6, 0, 0));
-        col.addView(c, lpm(-1, -2, 0, 12, 0, 0));
-
-        LinearLayout lc = card();
-        lc.addView(Ui.text(this, "Журнал", 15, Ui.TEXT, true));
-        logView = Ui.text(this, "", 11, Ui.TEXT_DIM, false);
-        logView.setTypeface(android.graphics.Typeface.MONOSPACE);
-        logView.setTextIsSelectable(true);
-        logScroll = new ScrollView(this);
-        logScroll.addView(logView);
-        lc.addView(logScroll, lpm(-1, dp(220), 0, 6, 0, 0));
-        col.addView(lc, lpm(-1, -2, 0, 12, 0, 0));
-
-        TextView info = Ui.text(this,
-                "Протокол (з офіційного додатка SVAKOM 4.1.6): сервіс FFE0, запис FFE1, сповіщення FFE2. "
-                        + "Сила: 55 04 00 00 00 VV AA (VV 0–255). Вбудований режим: 55 03 00 00 MM SS. "
-                        + "Стоп: 55 04 00 00 00 00 AA + 55 03 00 00 00 00. Батарея: 55 00.",
-                11, Ui.TEXT_DIM, false);
-        col.addView(info, lpm(-1, -2, 4, 12, 4, 8));
-        return scroll(col);
-    }
-
-    private void updateKeepAlive() {
-        boolean on = ble.getKeepAlive();
-        keepAliveBtn.setText((on ? "☑" : "☐") + "  Повторювати силу кожну 1 с (якщо іграшка сама вимикається)");
-    }
-
     // ================================================================ Bluetooth
 
     private String[] blePerms() {
@@ -920,22 +809,9 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         }
     }
 
-    @Override public void onLog(String line) { log(line); }
+    @Override public void onLog(String line) { android.util.Log.d("NeoRemote", line); }
 
-    private void log(String line) {
-        if (logView == null) return;
-        log.append(line).append('\n');
-        logLines++;
-        if (logLines > 200) {
-            int cut = log.indexOf("\n");
-            if (cut >= 0) log.delete(0, cut + 1);
-            logLines--;
-        }
-        logView.setText(log);
-        logScroll.post(new Runnable() {
-            @Override public void run() { logScroll.fullScroll(View.FOCUS_DOWN); }
-        });
-    }
+    private void log(String line) { onLog(line); }
 
     @Override public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
         boolean ok = results.length > 0;
