@@ -24,13 +24,6 @@ import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
-import android.widget.MediaController;
-import android.widget.VideoView;
-import android.net.Uri;
-import android.database.Cursor;
-import android.provider.OpenableColumns;
-import android.content.pm.ActivityInfo;
-import android.media.MediaPlayer;
 import android.widget.Toast;
 
 import java.util.ArrayList;
@@ -45,26 +38,11 @@ public class MainActivity extends Activity implements NeoBle.Listener {
     private static final int MODE_TOUCH = 3;
     private static final int MODE_SOUND = 4;
     private static final int MODE_BUILTIN = 5;
-    private static final int MODE_VIDEO = 6;
 
     private static final int REQ_BLE = 1;
     private static final int REQ_MIC = 2;
     private static final int REQ_BT_ON = 3;
     private static final int REQ_NOTIF = 4;
-    private static final int REQ_PICK_VIDEO = 10;
-    private static final int REQ_PICK_SCRIPT = 11;
-    private static final int REQ_MIC_VIDEO = 12;
-
-    // --- відео
-    private VideoView video;
-    private FrameLayout videoBox;
-    private View videoControls, fsOverlay, headerView, tabRowView, stopBtnView;
-    private LinearLayout rootView;
-    private TextView videoName, scriptName, syncScriptBtn, syncAudioBtn, bySpeedBtn, byPosBtn, offsetT, videoPlaceholder;
-    private Funscript script;
-    private boolean syncByScript = true, scriptBySpeed = true, fullscreen = false, videoReady = false;
-    private int offsetMs = 100;
-    private final MusicMeter videoMeter = new MusicMeter();
     private static final int RANDOM_IDX = 100;
     private static final long ENGINE_MS = 50;
 
@@ -134,7 +112,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         h.post(engine);
         onState(NeoBle.ST_IDLE, "Не підключено");
         tryAutoConnectSaved();
-        restoreVideo();
     }
 
     @Override protected void onDestroy() {
@@ -143,7 +120,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         NeoService.stop(this);
         sound.stop();
         music.stop();
-        videoMeter.stop();
         ble.release();
         super.onDestroy();
     }
@@ -155,7 +131,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
             h.postDelayed(this, ENGINE_MS);
             tick++;
             if (pad != null && pad.isTouching() && mode != MODE_TOUCH) setMode(MODE_TOUCH);
-            if (video != null && video.isPlaying() && mode != MODE_VIDEO) setMode(MODE_VIDEO);
             int pct = 0;
             switch (mode) {
                 case MODE_MANUAL:
@@ -177,15 +152,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
                 case MODE_SOUND:
                     pct = musicSource ? music.value() : sound.value();
                     if (micLevel != null) micLevel.setText((musicSource ? "Музика" : "Гучність") + " → " + pct + "%");
-                    break;
-                case MODE_VIDEO:
-                    if (video != null && video.isPlaying()) {
-                        if (syncByScript && script != null) {
-                            pct = script.valueAt(video.getCurrentPosition() + offsetMs, scriptBySpeed);
-                        } else {
-                            pct = videoMeter.value();
-                        }
-                    }
                     break;
                 case MODE_BUILTIN:
                     // вбудований режим працює в самій іграшці; на графіку показуємо його силу
@@ -233,11 +199,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
             pattern = null;
         }
         if (m != MODE_BUILTIN) builtinIdx = 0;
-        if (mode == MODE_VIDEO && m != MODE_VIDEO) {
-            videoMeter.stop();
-            if (video != null && video.isPlaying()) video.pause();
-        }
-        if (m == MODE_VIDEO && mode != MODE_VIDEO) startVideoAudioIfNeeded();
         if (m != MODE_TOUCH && loopOn) {
             loopOn = false;
             if (pad != null) pad.setLoop(false);
@@ -273,7 +234,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
             case MODE_TOUCH: return "Дотик";
             case MODE_SOUND: return musicSource ? "Музика на телефоні" : "Звук з мікрофона";
             case MODE_BUILTIN: return "Вбудований режим " + builtinIdx;
-            case MODE_VIDEO: return (syncByScript && script != null) ? "Відео за скриптом" : "Відео за звуком";
             default: return "";
         }
     }
@@ -323,8 +283,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         });
         header.addView(connectBtn);
         root.addView(header);
-        rootView = root;
-        headerView = header;
 
         // --- графік
         wave = new WaveView(this);
@@ -333,11 +291,11 @@ public class MainActivity extends Activity implements NeoBle.Listener {
 
         // --- вкладки (рівні частини ширини, без прокрутки)
         LinearLayout tabRow = new LinearLayout(this);
-        String[] names = {"Керування", "Вбудовані", "Режими", "Дотик", "Звук", "Відео"};
-        float[] weights = {1.32f, 1.27f, 1.05f, 0.95f, 0.82f, 0.9f};
+        String[] names = {"Керування", "Вбудовані", "Режими", "Дотик", "Звук"};
+        float[] weights = {1.3f, 1.25f, 1.05f, 0.95f, 0.85f};
         for (int i = 0; i < names.length; i++) {
             final int idx = i;
-            TextView t = Ui.text(this, names[i], 11.5f, Ui.TEXT, true);
+            TextView t = Ui.text(this, names[i], 13, Ui.TEXT, true);
             t.setGravity(Gravity.CENTER);
             t.setSingleLine(true);
             t.setPadding(dp(2), dp(9), dp(2), dp(9));
@@ -346,10 +304,9 @@ public class MainActivity extends Activity implements NeoBle.Listener {
             });
             tabs.add(t);
             LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weights[i]);
-            tp.setMargins(i == 0 ? 0 : dp(2), 0, i == names.length - 1 ? 0 : dp(2), 0);
+            tp.setMargins(i == 0 ? 0 : dp(3), 0, i == names.length - 1 ? 0 : dp(3), 0);
             tabRow.addView(t, tp);
         }
-        tabRowView = tabRow;
         root.addView(tabRow, lpm(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 10));
 
         // --- сторінки
@@ -359,7 +316,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         pages.add(buildPatternsPage());
         pages.add(buildTouchPage());
         pages.add(buildSoundPage());
-        pages.add(buildVideoPage());
         for (View p : pages) content.addView(p, new FrameLayout.LayoutParams(-1, -1));
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
 
@@ -370,7 +326,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
             @Override public void onClick(View v) { stopAll(); }
         });
         root.addView(stop, lpm(-1, dp(56), 0, 10, 0, 0));
-        stopBtnView = stop;
         return root;
     }
 
@@ -859,313 +814,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         srcMusicBtn.setTextColor(musicSource ? Ui.ACCENT_LIGHT : Ui.TEXT);
     }
 
-    // ---------------------------------------------------------------- Відео
-
-    private View buildVideoPage() {
-        LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-
-        videoBox = new FrameLayout(this);
-        videoBox.setBackground(Ui.round(this, 0xFF000000, 16));
-        videoBox.setClipToOutline(true);
-        video = new VideoView(this);
-        FrameLayout.LayoutParams vp = new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER);
-        videoBox.addView(video, vp);
-        videoPlaceholder = Ui.text(this, "Оберіть відео 👇", 15, Ui.TEXT_DIM, true);
-        videoPlaceholder.setGravity(Gravity.CENTER);
-        videoBox.addView(videoPlaceholder, new FrameLayout.LayoutParams(-1, -1));
-        // кнопки поверх відео в повноекранному режимі
-        LinearLayout ov = new LinearLayout(this);
-        ov.setGravity(Gravity.END);
-        TextView ovStop = Ui.button(this, "■", Ui.RED, 0);
-        ovStop.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { stopAll(); }
-        });
-        TextView ovExit = Ui.button(this, "✕", 0xAA000000, 0);
-        ovExit.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { setFullscreen(false); }
-        });
-        ov.addView(ovStop, lpm(dp(48), dp(48), 0, 0, 8, 0));
-        ov.addView(ovExit, lpm(dp(48), dp(48), 0, 0, 0, 0));
-        ov.setVisibility(View.GONE);
-        fsOverlay = ov;
-        FrameLayout.LayoutParams op = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        op.setMargins(dp(12), dp(12), dp(12), dp(12));
-        videoBox.addView(ov, op);
-
-        MediaController mc = new MediaController(this);
-        mc.setAnchorView(videoBox);
-        video.setMediaController(mc);
-        video.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
-            @Override public void onPrepared(MediaPlayer mp) {
-                videoReady = true;
-                videoPlaceholder.setVisibility(View.GONE);
-                video.seekTo(1); // показати перший кадр
-            }
-        });
-        video.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
-            @Override public void onCompletion(MediaPlayer mp) { if (mode == MODE_VIDEO) setMode(MODE_NONE); }
-        });
-        video.setOnErrorListener(new MediaPlayer.OnErrorListener() {
-            @Override public boolean onError(MediaPlayer mp, int what, int extra) {
-                videoPlaceholder.setText("Не вдалося відкрити відео");
-                videoPlaceholder.setVisibility(View.VISIBLE);
-                return true;
-            }
-        });
-        page.addView(videoBox, new LinearLayout.LayoutParams(-1, dp(210)));
-
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-
-        LinearLayout files = card();
-        LinearLayout pick = new LinearLayout(this);
-        TextView pv = Ui.button(this, "📂  Відео", Ui.ACCENT, 0);
-        pv.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { pickFile(REQ_PICK_VIDEO, "video/*"); }
-        });
-        TextView ps = Ui.button(this, "📜  Скрипт", Ui.CARD_HI, Ui.ACCENT_DIM);
-        ps.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { pickFile(REQ_PICK_SCRIPT, "*/*"); }
-        });
-        LinearLayout.LayoutParams a1 = new LinearLayout.LayoutParams(0, dp(48), 1);
-        a1.setMargins(0, 0, dp(5), 0);
-        LinearLayout.LayoutParams a2 = new LinearLayout.LayoutParams(0, dp(48), 1);
-        a2.setMargins(dp(5), 0, 0, 0);
-        pick.addView(pv, a1);
-        pick.addView(ps, a2);
-        files.addView(pick);
-        videoName = Ui.text(this, "Відео не обрано", 12, Ui.TEXT_DIM, false);
-        scriptName = Ui.text(this, "Скрипт (.funscript) не обрано: синхронізація за звуком відео", 12, Ui.TEXT_DIM, false);
-        files.addView(videoName, lpm(-1, -2, 0, 10, 0, 0));
-        files.addView(scriptName, lpm(-1, -2, 0, 4, 0, 0));
-        col.addView(files, lpm(-1, -2, 0, 10, 0, 0));
-
-        LinearLayout sync = card();
-        sync.addView(Ui.text(this, "Синхронізація", 15, Ui.TEXT, true));
-        LinearLayout srow = new LinearLayout(this);
-        syncScriptBtn = Ui.button(this, "За скриптом", Ui.CARD, Ui.ACCENT_DIM);
-        syncAudioBtn = Ui.button(this, "За звуком відео", Ui.CARD, Ui.ACCENT_DIM);
-        syncScriptBtn.setTextSize(13);
-        syncAudioBtn.setTextSize(13);
-        syncScriptBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                if (script == null) { toast("Спочатку оберіть файл .funscript"); return; }
-                setSyncByScript(true);
-            }
-        });
-        syncAudioBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { setSyncByScript(false); }
-        });
-        srow.addView(syncScriptBtn, new LinearLayout.LayoutParams(0, dp(46), 1));
-        srow.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
-        srow.addView(syncAudioBtn, new LinearLayout.LayoutParams(0, dp(46), 1));
-        sync.addView(srow, lpm(-1, -2, 0, 8, 0, 0));
-
-        sync.addView(Ui.text(this, "Сила за скриптом береться від:", 12, Ui.TEXT_DIM, false), lpm(-2, -2, 0, 12, 0, 0));
-        LinearLayout brow = new LinearLayout(this);
-        bySpeedBtn = Ui.button(this, "Швидкості рухів", Ui.CARD, Ui.ACCENT_DIM);
-        byPosBtn = Ui.button(this, "Позиції", Ui.CARD, Ui.ACCENT_DIM);
-        bySpeedBtn.setTextSize(13);
-        byPosBtn.setTextSize(13);
-        bySpeedBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                scriptBySpeed = true;
-                prefs.edit().putBoolean("bySpeed", true).apply();
-                updateVideoUi();
-            }
-        });
-        byPosBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                scriptBySpeed = false;
-                prefs.edit().putBoolean("bySpeed", false).apply();
-                updateVideoUi();
-            }
-        });
-        brow.addView(bySpeedBtn, new LinearLayout.LayoutParams(0, dp(42), 1));
-        brow.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
-        brow.addView(byPosBtn, new LinearLayout.LayoutParams(0, dp(42), 1));
-        sync.addView(brow, lpm(-1, -2, 0, 6, 0, 0));
-
-        offsetMs = prefs.getInt("offsetMs", 100);
-        scriptBySpeed = prefs.getBoolean("bySpeed", true);
-        offsetT = Ui.text(this, "", 13, Ui.TEXT, false);
-        sync.addView(offsetT, lpm(-2, -2, 0, 14, 0, 0));
-        SeekBar os = Ui.seek(this, 100, (offsetMs + 500) / 10);
-        os.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int p, boolean user) {
-                if (!user) return;
-                offsetMs = p * 10 - 500;
-                prefs.edit().putInt("offsetMs", offsetMs).apply();
-                updateVideoUi();
-            }
-            @Override public void onStartTrackingTouch(SeekBar sb) { }
-            @Override public void onStopTrackingTouch(SeekBar sb) { }
-        });
-        sync.addView(os, lpm(-1, dp(40), 0, 2, 0, 0));
-        sync.addView(Ui.text(this, "Якщо іграшка запізнюється від відео, посуньте вправо.", 11, Ui.TEXT_DIM, false));
-        col.addView(sync, lpm(-1, -2, 0, 10, 0, 0));
-
-        TextView fs = Ui.button(this, "⛶  На весь екран", Ui.CARD, Ui.ACCENT_DIM);
-        fs.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                if (!videoReady) { toast("Спочатку оберіть відео"); return; }
-                setFullscreen(true);
-            }
-        });
-        col.addView(fs, lpm(-1, dp(50), 0, 10, 0, 0));
-
-        col.addView(Ui.text(this, "Відео з YouTube чи браузера: вкладка «Звук» → «Музика телефону».",
-                11, Ui.TEXT_DIM, false), lpm(-1, -2, 4, 10, 4, 6));
-
-        ScrollView sc = scroll(col);
-        videoControls = sc;
-        page.addView(sc, new LinearLayout.LayoutParams(-1, 0, 1));
-        updateVideoUi();
-        return page;
-    }
-
-    private void pickFile(int req, String mime) {
-        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType(mime);
-        try {
-            startActivityForResult(i, req);
-        } catch (Exception e) {
-            toast("Не знайдено менеджер файлів");
-        }
-    }
-
-    private String displayName(Uri uri) {
-        String name = null;
-        try {
-            Cursor c = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
-            if (c != null) {
-                if (c.moveToFirst()) name = c.getString(0);
-                c.close();
-            }
-        } catch (Exception ignored) { }
-        return name != null ? name : uri.getLastPathSegment();
-    }
-
-    private void keepAccess(Uri uri) {
-        try {
-            getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        } catch (Exception ignored) { }
-    }
-
-    private void openVideo(Uri uri, boolean quiet) {
-        try {
-            if (mode == MODE_VIDEO) setMode(MODE_NONE);
-            videoReady = false;
-            videoPlaceholder.setText("Завантаження…");
-            videoPlaceholder.setVisibility(View.VISIBLE);
-            video.setVideoURI(uri);
-            videoName.setText("🎬  " + displayName(uri));
-            prefs.edit().putString("videoUri", uri.toString()).apply();
-        } catch (Exception e) {
-            if (!quiet) toast("Не вдалося відкрити відео");
-        }
-    }
-
-    private boolean openScript(Uri uri, boolean quiet) {
-        try {
-            java.io.InputStream in = getContentResolver().openInputStream(uri);
-            if (in == null) throw new Exception("немає доступу");
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[16384];
-            int n;
-            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-            in.close();
-            String name = displayName(uri);
-            script = Funscript.parse(out.toString("UTF-8"), name);
-            int sec = script.durationMs() / 1000;
-            scriptName.setText("📜  " + name + "  ·  " + script.count() + " рухів, "
-                    + (sec / 60) + ":" + String.format("%02d", sec % 60));
-            prefs.edit().putString("scriptUri", uri.toString()).apply();
-            setSyncByScript(true);
-            return true;
-        } catch (Exception e) {
-            if (!quiet) toast("Це не схоже на .funscript: " + e.getMessage());
-            return false;
-        }
-    }
-
-    private void restoreVideo() {
-        String v = prefs.getString("videoUri", null);
-        String sc = prefs.getString("scriptUri", null);
-        if (v != null) openVideo(Uri.parse(v), true);
-        if (sc != null && !openScript(Uri.parse(sc), true)) prefs.edit().remove("scriptUri").apply();
-    }
-
-    private void setSyncByScript(boolean byScript) {
-        if (!byScript && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            pendingAfterPerms = new Runnable() { @Override public void run() { setSyncByScript(false); } };
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_MIC_VIDEO);
-            return;
-        }
-        syncByScript = byScript;
-        if (mode == MODE_VIDEO) {
-            videoMeter.stop();
-            startVideoAudioIfNeeded();
-            updateService();
-        }
-        updateVideoUi();
-    }
-
-    private void startVideoAudioIfNeeded() {
-        if (syncByScript && script != null) return;
-        if (video == null) return;
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            toast("Для синхронізації за звуком дозвольте «Мікрофон» (кнопка «За звуком відео»)");
-            return;
-        }
-        int session = video.getAudioSessionId();
-        if (!videoMeter.start(session) && !videoMeter.start(0)) toast("Цей телефон не дає аналізувати звук відео");
-    }
-
-    private void updateVideoUi() {
-        if (syncScriptBtn == null) return;
-        boolean byScript = syncByScript && script != null;
-        Ui.bg(syncScriptBtn, byScript ? Ui.CARD_HI : Ui.CARD, byScript ? Ui.ACCENT : Ui.ACCENT_DIM, 14);
-        Ui.bg(syncAudioBtn, !byScript ? Ui.CARD_HI : Ui.CARD, !byScript ? Ui.ACCENT : Ui.ACCENT_DIM, 14);
-        syncScriptBtn.setTextColor(byScript ? Ui.ACCENT_LIGHT : (script == null ? Ui.TEXT_DIM : Ui.TEXT));
-        syncAudioBtn.setTextColor(!byScript ? Ui.ACCENT_LIGHT : Ui.TEXT);
-        Ui.bg(bySpeedBtn, scriptBySpeed ? Ui.CARD_HI : Ui.CARD, scriptBySpeed ? Ui.ACCENT : Ui.ACCENT_DIM, 14);
-        Ui.bg(byPosBtn, !scriptBySpeed ? Ui.CARD_HI : Ui.CARD, !scriptBySpeed ? Ui.ACCENT : Ui.ACCENT_DIM, 14);
-        bySpeedBtn.setTextColor(scriptBySpeed ? Ui.ACCENT_LIGHT : Ui.TEXT);
-        byPosBtn.setTextColor(!scriptBySpeed ? Ui.ACCENT_LIGHT : Ui.TEXT);
-        offsetT.setText("Випередження іграшки: " + (offsetMs > 0 ? "+" : "") + offsetMs + " мс");
-    }
-
-    @SuppressWarnings("deprecation")
-    private void setFullscreen(boolean on) {
-        fullscreen = on;
-        int v = on ? View.GONE : View.VISIBLE;
-        headerView.setVisibility(v);
-        wave.setVisibility(v);
-        tabRowView.setVisibility(v);
-        stopBtnView.setVisibility(v);
-        videoControls.setVisibility(v);
-        fsOverlay.setVisibility(on ? View.VISIBLE : View.GONE);
-        rootView.setPadding(on ? 0 : dp(16), on ? 0 : dp(12), on ? 0 : dp(16), on ? 0 : dp(12));
-        videoBox.setLayoutParams(on ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, dp(210)));
-        videoBox.setBackground(on ? null : Ui.round(this, 0xFF000000, 16));
-        rootView.setBackgroundColor(on ? 0xFF000000 : Ui.BG);
-        setRequestedOrientation(on ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-        getWindow().getDecorView().setSystemUiVisibility(on
-                ? View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN
-                  | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                : 0);
-    }
-
-    @SuppressWarnings("deprecation")
-    @Override public void onBackPressed() {
-        if (fullscreen) { setFullscreen(false); return; }
-        super.onBackPressed();
-    }
-
     // ================================================================ Bluetooth
 
     private String[] blePerms() {
@@ -1328,7 +976,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         if (ok && next != null) {
             next.run();
         } else if (!ok && code != REQ_NOTIF) {
-            toast(code == REQ_MIC || code == REQ_MIC_VIDEO
+            toast(code == REQ_MIC
                     ? "Без доступу до мікрофона режим «Звук» не працює"
                     : "Без дозволу на Bluetooth підключитися не вийде");
         }
@@ -1337,11 +985,6 @@ public class MainActivity extends Activity implements NeoBle.Listener {
     @Override protected void onActivityResult(int code, int result, Intent data) {
         super.onActivityResult(code, result, data);
         if (code == REQ_BT_ON && result == RESULT_OK) openPicker();
-        if ((code == REQ_PICK_VIDEO || code == REQ_PICK_SCRIPT) && result == RESULT_OK && data != null && data.getData() != null) {
-            Uri uri = data.getData();
-            keepAccess(uri);
-            if (code == REQ_PICK_VIDEO) openVideo(uri, false); else openScript(uri, false);
-        }
     }
 
     private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
