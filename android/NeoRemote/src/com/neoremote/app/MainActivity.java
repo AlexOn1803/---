@@ -40,6 +40,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
     private static final int MODE_PATTERN = 2;
     private static final int MODE_TOUCH = 3;
     private static final int MODE_SOUND = 4;
+    private static final int MODE_BUILTIN = 5;
 
     private static final int REQ_BLE = 1;
     private static final int REQ_MIC = 2;
@@ -61,6 +62,10 @@ public class MainActivity extends Activity implements NeoBle.Listener {
     private int[] pattern;
     private int patPos;
     private long tick;
+    private int builtinIdx = 0;          // 1..7, вбудований режим іграшки
+    private int builtinStrength = NeoBle.DEFAULT_MODE_STRENGTH;
+    private String statusBase = "";
+    private int batteryPct = -1;
 
     // інтерфейс
     private TextView statusText, connectBtn;
@@ -141,20 +146,23 @@ public class MainActivity extends Activity implements NeoBle.Listener {
                     pct = sound.value();
                     if (micLevel != null) micLevel.setText("Гучність → " + pct + "%");
                     break;
+                case MODE_BUILTIN:
+                    // вбудований режим працює в самій іграшці; на графіку показуємо його силу
+                    wave.push(builtinStrength * 10, "Вбудований режим " + builtinIdx + ", сила " + builtinStrength);
+                    return;
                 default:
                     break;
             }
-            int lv = toLevel(pct);
-            ble.setLevel(lv);
-            wave.push(pct, lv);
+            int v = toPower(pct);
+            ble.setPower(v);
+            wave.push(pct, "Сила на іграшці: " + v + " / " + NeoBle.MAX_POWER);
         }
     };
 
-    /** 0 % → 0, 1–33 % → 1, 34–66 % → 2, 67–100 % → 3 */
-    static int toLevel(int pct) {
+    /** 0..100 % → 0..255 */
+    static int toPower(int pct) {
         if (pct <= 0) return 0;
-        int lv = (int) Math.ceil(pct * NeoBle.MAX_LEVEL / 100.0);
-        return Math.max(1, Math.min(NeoBle.MAX_LEVEL, lv));
+        return Math.max(1, Math.min(NeoBle.MAX_POWER, Math.round(pct * NeoBle.MAX_POWER / 100f)));
     }
 
     private void setMode(int m) {
@@ -166,6 +174,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
             patternIdx = -1;
             pattern = null;
         }
+        if (m != MODE_BUILTIN) builtinIdx = 0;
         if (m != MODE_TOUCH && loopOn) {
             loopOn = false;
             if (pad != null) pad.setLoop(false);
@@ -363,7 +372,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         col.addView(manualStart, lpm(-1, dp(64), 0, 12, 0, 0));
 
         TextView note = Ui.text(this,
-                "У Alex Neo 2 три рівні сили. 1–33 % = рівень 1, 34–66 % = рівень 2, 67–100 % = рівень 3.",
+                "Сила плавна: 0–100 % на повзунку = 0–255 на іграшці (як у режимі «Дотик» фірмового додатка).",
                 12, Ui.TEXT_DIM, false);
         col.addView(note, lpm(-1, -2, 4, 12, 4, 0));
         updateManualUi();
@@ -373,7 +382,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
     private void updateManualUi() {
         if (manualBig == null) return;
         manualBig.setText(manualPct + "%");
-        manualSub.setText("рівень " + toLevel(manualPct) + " з " + NeoBle.MAX_LEVEL);
+        manualSub.setText("сила " + toPower(manualPct) + " з " + NeoBle.MAX_POWER);
         boolean on = mode == MODE_MANUAL;
         manualStart.setText(on ? "❚❚  ПАУЗА" : "▶  СТАРТ");
         Ui.bg(manualStart, on ? Ui.CARD_HI : Ui.ACCENT, on ? Ui.ACCENT : 0, 32);
@@ -385,6 +394,49 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
 
+        // --- вбудовані режими іграшки
+        LinearLayout bc = card();
+        bc.addView(Ui.text(this, "Вбудовані режими іграшки", 15, Ui.TEXT, true));
+        bc.addView(Ui.text(this, "Ті самі 7 режимів, що у фірмовому додатку Svakom", 12, Ui.TEXT_DIM, false));
+        LinearLayout brow = null;
+        for (int i = 1; i <= NeoBle.MODE_COUNT; i++) {
+            if ((i - 1) % 4 == 0) {
+                brow = new LinearLayout(this);
+                bc.addView(brow, lpm(-1, -2, 0, 8, 0, 0));
+            }
+            final int mi = i;
+            TextView b = Ui.button(this, String.valueOf(i), Ui.CARD_HI, Ui.ACCENT_DIM);
+            b.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { toggleBuiltin(mi); }
+            });
+            builtinBtns.add(b);
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(0, dp(48), 1);
+            bp.setMargins((i - 1) % 4 == 0 ? 0 : dp(4), 0, (i - 1) % 4 == 3 ? 0 : dp(4), 0);
+            brow.addView(b, bp);
+        }
+        View filler = new View(this);
+        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(0, dp(48), 1);
+        fp.setMargins(dp(4), 0, 0, 0);
+        brow.addView(filler, fp);
+        final TextView bsv = Ui.text(this, "", 13, Ui.TEXT_DIM, false);
+        bc.addView(bsv, lpm(-2, -2, 0, 12, 0, 0));
+        builtinStrength = prefs.getInt("bstrength", NeoBle.DEFAULT_MODE_STRENGTH);
+        bsv.setText("Сила вбудованого режиму: " + builtinStrength + " з 10 (у Svakom завжди 5)");
+        SeekBar bs = Ui.seek(this, 9, builtinStrength - 1);
+        bs.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean user) {
+                builtinStrength = p + 1;
+                bsv.setText("Сила вбудованого режиму: " + builtinStrength + " з 10 (у Svakom завжди 5)");
+                prefs.edit().putInt("bstrength", builtinStrength).apply();
+                if (mode == MODE_BUILTIN && builtinIdx > 0) ble.setBuiltinMode(builtinIdx, builtinStrength);
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) { }
+            @Override public void onStopTrackingTouch(SeekBar sb) { }
+        });
+        bc.addView(bs, lpm(-1, dp(40), 0, 2, 0, 0));
+        col.addView(bc, lp(-1, -2));
+
+        col.addView(Ui.text(this, "Режими додатка", 15, Ui.TEXT, true), lpm(-2, -2, 4, 18, 0, 8));
         LinearLayout c = card();
         c.addView(Ui.text(this, "Сила режиму", 14, Ui.TEXT, true));
         final TextView mv = Ui.text(this, masterPct + "%", 13, Ui.TEXT_DIM, false);
@@ -422,7 +474,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
             cell.setPadding(dp(6), dp(10), dp(6), dp(10));
             MiniWave mw = new MiniWave(this, Patterns.preview(i, 24));
             cell.addView(mw, lp(-1, dp(26)));
-            TextView label = Ui.text(this, "Режим " + (i + 1) + "\n" + Patterns.NAMES[i], 12, Ui.TEXT, false);
+            TextView label = Ui.text(this, Patterns.NAMES[i], 12, Ui.TEXT, false);
             label.setGravity(Gravity.CENTER);
             cell.addView(label, lpm(-1, -2, 0, 6, 0, 0));
             // клікабельна картка: TextView-обгортка не потрібна, слухаємо на LinearLayout
@@ -446,6 +498,19 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         return scroll(col);
     }
 
+    private final List<TextView> builtinBtns = new ArrayList<TextView>();
+
+    private void toggleBuiltin(int idx) {
+        if (mode == MODE_BUILTIN && builtinIdx == idx) {
+            setMode(MODE_NONE);
+            return;
+        }
+        setMode(MODE_BUILTIN);
+        builtinIdx = idx;
+        ble.setBuiltinMode(idx, builtinStrength);
+        updatePatternButtons();
+    }
+
     private void togglePattern(int idx) {
         if (mode == MODE_PATTERN && patternIdx == idx) {
             setMode(MODE_NONE);
@@ -459,6 +524,11 @@ public class MainActivity extends Activity implements NeoBle.Listener {
     }
 
     private void updatePatternButtons() {
+        for (int i = 0; i < builtinBtns.size(); i++) {
+            boolean on = mode == MODE_BUILTIN && builtinIdx == i + 1;
+            TextView b = builtinBtns.get(i);
+            Ui.bg(b, on ? Ui.ACCENT : Ui.CARD_HI, on ? 0 : Ui.ACCENT_DIM, 16);
+        }
         for (int i = 0; i < patternBtns.size(); i++) {
             TextView t = patternBtns.get(i);
             boolean on = mode == MODE_PATTERN && patternIdx == patternIds.get(i);
@@ -628,20 +698,23 @@ public class MainActivity extends Activity implements NeoBle.Listener {
 
         LinearLayout c = card();
         c.addView(Ui.text(this, "Перевірка команд", 15, Ui.TEXT, true));
-        c.addView(Ui.text(this, "Пряме надсилання рівнів 0–3 без режимів", 12, Ui.TEXT_DIM, false));
+        c.addView(Ui.text(this, "Пряме надсилання команд без режимів", 12, Ui.TEXT_DIM, false));
         LinearLayout row = new LinearLayout(this);
-        for (int i = 0; i <= NeoBle.MAX_LEVEL; i++) {
-            final int lv = i;
-            TextView b = Ui.button(this, String.valueOf(i), Ui.CARD_HI, 0);
+        final String[] tl = {"Стоп", "25%", "50%", "100%", "🔋"};
+        final byte[][] tc = {NeoBle.STOP_POWER, NeoBle.powerCmd(64), NeoBle.powerCmd(128), NeoBle.powerCmd(255),
+                NeoBle.READ_BATTERY};
+        for (int i = 0; i < tl.length; i++) {
+            final int k = i;
+            TextView b = Ui.button(this, tl[i], Ui.CARD_HI, 0);
+            b.setPadding(0, dp(12), 0, dp(12));
             b.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     setMode(MODE_NONE);
-                    ble.sendRaw(NeoBle.levelCmd(lv));
-                    ble.setLevel(lv);
+                    if (k == 0) ble.stopNow(); else ble.sendRaw(tc[k]);
                 }
             });
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(46), 1);
-            p.setMargins(i == 0 ? 0 : dp(4), 0, i == NeoBle.MAX_LEVEL ? 0 : dp(4), 0);
+            p.setMargins(i == 0 ? 0 : dp(3), 0, i == tl.length - 1 ? 0 : dp(3), 0);
             row.addView(b, p);
         }
         c.addView(row, lpm(-1, -2, 0, 10, 0, 0));
@@ -650,7 +723,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         LinearLayout hexRow = new LinearLayout(this);
         hexRow.setGravity(Gravity.CENTER_VERTICAL);
         final EditText hex = new EditText(this);
-        hex.setText(prefs.getString("hex", "55 03 03 00 01 06"));
+        hex.setText(prefs.getString("hex2", "55 04 00 00 00 80 AA"));
         hex.setTextColor(Ui.TEXT);
         hex.setHintTextColor(Ui.TEXT_DIM);
         hex.setSingleLine(true);
@@ -663,7 +736,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
             @Override public void onClick(View v) {
                 byte[] data = NeoBle.parseHex(hex.getText().toString());
                 if (data == null) { toast("Неправильний HEX"); return; }
-                prefs.edit().putString("hex", hex.getText().toString()).apply();
+                prefs.edit().putString("hex2", hex.getText().toString()).apply();
                 setMode(MODE_NONE);
                 ble.sendRaw(data);
             }
@@ -685,8 +758,9 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         col.addView(lc, lpm(-1, -2, 0, 12, 0, 0));
 
         TextView info = Ui.text(this,
-                "Протокол: BLE-сервіс FFE0, характеристика FFE1, команда 55 03 03 00 LL LL+5 "
-                        + "(LL = 0…3). Узято з open-source бібліотеки Buttplug (svakom-alex-v2).",
+                "Протокол (з офіційного додатка SVAKOM 4.1.6): сервіс FFE0, запис FFE1, сповіщення FFE2. "
+                        + "Сила: 55 04 00 00 00 VV AA (VV 0–255). Вбудований режим: 55 03 00 00 MM SS. "
+                        + "Стоп: 55 04 00 00 00 00 AA + 55 03 00 00 00 00. Батарея: 55 00.",
                 11, Ui.TEXT_DIM, false);
         col.addView(info, lpm(-1, -2, 4, 12, 4, 8));
         return scroll(col);
@@ -694,7 +768,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
 
     private void updateKeepAlive() {
         boolean on = ble.getKeepAlive();
-        keepAliveBtn.setText((on ? "☑" : "☐") + "  Повторювати команду кожні 2 с (якщо іграшка сама вимикається)");
+        keepAliveBtn.setText((on ? "☑" : "☐") + "  Повторювати силу кожну 1 с (якщо іграшка сама вимикається)");
     }
 
     // ================================================================ Bluetooth
@@ -804,8 +878,21 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         picker.setTitle("Оберіть іграшку");
     }
 
+    @Override public void onBattery(int percent) {
+        batteryPct = percent;
+        refreshStatus();
+    }
+
+    private void refreshStatus() {
+        String t = statusBase;
+        if (ble.isReady() && batteryPct > 0) t += "  ·  🔋 " + batteryPct + "%";
+        statusText.setText(t);
+    }
+
     @Override public void onState(int state, String text) {
-        statusText.setText(text);
+        statusBase = text;
+        if (state != NeoBle.ST_READY) batteryPct = -1;
+        refreshStatus();
         int color;
         String btn;
         switch (state) {
@@ -829,7 +916,7 @@ public class MainActivity extends Activity implements NeoBle.Listener {
         if (state == NeoBle.ST_IDLE && mode != MODE_NONE && ble.deviceAddress() != null) {
             // зв'язок втрачено: зупиняємо режими, щоб після перепідключення нічого не ввімкнулось раптово
             setMode(MODE_NONE);
-            ble.setLevel(0);
+            ble.setPower(0);
         }
     }
 

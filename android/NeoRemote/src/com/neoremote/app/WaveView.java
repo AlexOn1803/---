@@ -14,7 +14,7 @@ public class WaveView extends View {
     private final float[] buf = new float[140];
     private int head = 0;
     private float level = 0;
-    private int deviceLevel = 0;
+    private String label = "";
 
     private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -47,13 +47,13 @@ public class WaveView extends View {
         grid.setStrokeWidth(1 * d);
     }
 
-    /** value 0..100, deviceLevel 0..3 */
-    public void push(float value, int devLevel) {
+    /** value 0..100, label: що зараз надсилається на іграшку */
+    public void push(float value, String devLabel) {
         // трохи згладжуємо, щоб лінія була плавною
         level = level + (value - level) * 0.45f;
         buf[head] = level;
         head = (head + 1) % buf.length;
-        deviceLevel = devLevel;
+        label = devLabel;
         invalidate();
     }
 
@@ -94,6 +94,6 @@ public class WaveView extends View {
         small.setFakeBoldText(false);
         small.setTextAlign(Paint.Align.LEFT);
         small.setColor(0xAAFFFFFF);
-        c.drawText("Рівень на іграшці: " + deviceLevel + " / " + NeoBle.MAX_LEVEL, 8 * d, 22 * d, small);
+        c.drawText(label, 8 * d, 22 * d, small);
     }
 }
