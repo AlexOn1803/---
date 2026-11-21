@@ -18,10 +18,13 @@ public class MusicMeter {
     public int value() { return vis != null ? pct : 0; }
     public void setSensitivity(float s) { sensitivity = Math.max(0f, Math.min(1f, s)); }
 
-    public boolean start() {
+    public boolean start() { return start(0); }
+
+    /** session = 0: увесь звук телефону; інакше аудіосесія конкретного плеєра. */
+    public boolean start(int session) {
         if (vis != null) return true;
         try {
-            Visualizer v = new Visualizer(0);
+            Visualizer v = new Visualizer(session);
             v.setEnabled(false);
             int[] range = Visualizer.getCaptureSizeRange();
             v.setCaptureSize(Math.max(range[0], Math.min(1024, range[1])));
