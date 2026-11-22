@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Перекладач екрана</string>
+    <string name="service_label">Перекладач екрана</string>
+    <string name="service_description">Натисніть одночасно обидві кнопки гучності — і англійський текст на екрані буде перекладено українською прямо поверх оригіналу. Служба робить знімок екрана лише в момент натискання; розпізнавання і переклад відбуваються на телефоні, нічого не надсилається в інтернет.</string>
+
+    <string name="title">Перекладач екрана</string>
+    <string name="subtitle">Англійська → українська. Затисніть обидві кнопки гучності — переклад з\'явиться поверх тексту.</string>
+
+    <string name="step1">1. Завантажте модель перекладу</string>
+    <string name="step1_hint">≈30 МБ, один раз. Далі переклад працює без інтернету.</string>
+    <string name="btn_download">Завантажити модель</string>
+    <string name="model_checking">Перевіряю модель…</string>
+    <string name="model_ready">✅ Модель перекладу завантажена</string>
+    <string name="model_missing">⚠️ Модель ще не завантажена</string>
+    <string name="model_downloading">⏳ Завантажую модель…</string>
+    <string name="model_failed">❌ Не вдалося завантажити: %1$s</string>
+
+    <string name="step2">2. Увімкніть службу</string>
+    <string name="step2_hint">Налаштування → Спеціальні можливості → Встановлені застосунки (або «Завантажені служби») → «Перекладач екрана» → Увімкнути.</string>
+    <string name="btn_accessibility">Відкрити спеціальні можливості</string>
+    <string name="service_on">✅ Службу увімкнено — можна користуватися</string>
+    <string name="service_off">⚠️ Службу вимкнено</string>
+
+    <string name="restricted_title">Перемикач сірий / «Обмежене налаштування»?</string>
+    <string name="restricted_hint">Android 13+ блокує спеціальні можливості для застосунків, встановлених не з Google Play. Натисніть кнопку нижче → ⋮ (три крапки вгорі праворуч) → «Дозволити обмежені налаштування», потім поверніться до кроку 2.</string>
+    <string name="btn_app_info">Відкрити інформацію про застосунок</string>
+
+    <string name="step3">3. Користування</string>
+    <string name="step3_hint">• Натисніть обидві кнопки гучності одночасно — з\'явиться переклад.\n• Торкніться екрана або натисніть обидві кнопки ще раз — переклад зникне.\n• Утримуйте палець на перекладі — весь текст скопіюється в буфер обміну.\n• Окремі кнопки гучності, як і раніше, змінюють гучність.</string>
+
+    <string name="test_title">Перевірка перекладу</string>
+    <string name="test_hint">Введіть англійський текст</string>
+    <string name="test_default">Hello! This app translates text on your screen.</string>
+    <string name="btn_translate">Перекласти</string>
+
+    <!-- Повідомлення служби -->
+    <string name="translating">Перекладаю…</string>
+    <string name="downloading_model">Завантажую модель перекладу…</string>
+    <string name="no_text">Англійський текст не знайдено</string>
+    <string name="screenshot_failed">Не вдалося зробити знімок екрана (код %1$d). Деякі застосунки (банки, відео) забороняють знімки.</string>
+    <string name="ocr_failed">Помилка розпізнавання тексту</string>
+    <string name="model_needed">Немає моделі перекладу. Підключіться до інтернету й відкрийте «Перекладач екрана».</string>
+    <string name="overlay_hint">Торкніться — закрити · Утримуйте — копіювати</string>
+    <string name="copied">Переклад скопійовано</string>
+</resources>

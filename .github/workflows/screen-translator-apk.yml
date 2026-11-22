@@ -1,0 +1,36 @@
+name: Screen Translator APK
+
+on:
+  push:
+    paths:
+      - "screen-translator/**"
+      - ".github/workflows/screen-translator-apk.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: screen-translator
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ScreenTranslator.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScreenTranslator-apk
+          path: screen-translator/ScreenTranslator.apk
+          if-no-files-found: error
