@@ -34,8 +34,8 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
 /**
  * Служба спеціальних можливостей:
- *  - слухає кнопки гучності; обидві натиснуті разом → переклад екрана;
- *  - одиночні натискання повертає системі як звичайну зміну гучності;
+ *  - слухає кнопки гучності: коротке «вниз» (або обидві разом) → переклад екрана;
+ *  - «вгору» і утримання «вниз» працюють як звичайна зміна гучності;
  *  - робить знімок екрана, розпізнає текст, перекладає і показує поверх оригіналу.
  */
 class ScreenTranslatorService : AccessibilityService() {
@@ -131,7 +131,11 @@ class ScreenTranslatorService : AccessibilityService() {
             KeyEvent.ACTION_UP -> {
                 val wasCombo = comboFired || (volUpHeld && volDownHeld)
                 if (isUp) volUpHeld = false else volDownHeld = false
-                if (!wasCombo && !singleKeyRepeated) adjustVolume(isUp)
+                if (!wasCombo && !singleKeyRepeated) {
+                    // Коротке натискання: «вниз» — переклад, «вгору» — гучність.
+                    // Утримання «вниз» зменшує гучність (див. повтори в ACTION_DOWN).
+                    if (isUp) adjustVolume(true) else onCombo()
+                }
                 if (!volUpHeld && !volDownHeld) {
                     comboFired = false
                     singleKeyRepeated = false
