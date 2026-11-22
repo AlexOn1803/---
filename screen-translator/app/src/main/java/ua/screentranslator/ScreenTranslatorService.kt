@@ -34,8 +34,8 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
 /**
  * Служба спеціальних можливостей:
- *  - слухає кнопки гучності: коротке «вниз» (або обидві разом) → переклад екрана;
- *  - «вгору» і утримання «вниз» працюють як звичайна зміна гучності;
+ *  - коротке натискання «гучність вниз» → переклад екрана (ще раз → сховати);
+ *  - утримання «вниз» зменшує гучність, «вгору» система обробляє сама;
  *  - робить знімок екрана, розпізнає текст, перекладає і показує поверх оригіналу.
  */
 class ScreenTranslatorService : AccessibilityService() {
@@ -52,11 +52,9 @@ class ScreenTranslatorService : AccessibilityService() {
     private var statusView: TextView? = null
     private var busy = false
 
-    // Стан кнопок гучності
-    private var volUpHeld = false
+    // Стан кнопки «гучність вниз»
     private var volDownHeld = false
-    private var comboFired = false
-    private var singleKeyRepeated = false
+    private var volDownRepeated = false
 
     override fun onCreate() {
         super.onCreate()
@@ -97,10 +95,10 @@ class ScreenTranslatorService : AccessibilityService() {
     // ---------------------------------------------------------------- кнопки
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
-        val code = event.keyCode
-        if (code != KeyEvent.KEYCODE_VOLUME_UP && code != KeyEvent.KEYCODE_VOLUME_DOWN) return false
+        // Перехоплюємо лише «гучність вниз»; «вгору» повністю обробляє система.
+        if (event.keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) return false
 
-        // Застосунок закритий, дзвінок / рингтон або вимкнений екран — кнопки не чіпаємо.
+        // Застосунок закритий, дзвінок / рингтон або вимкнений екран — кнопку не чіпаємо.
         if (!TranslatorState.active || !powerManager.isInteractive ||
             audioManager.mode != AudioManager.MODE_NORMAL
         ) {
@@ -108,48 +106,30 @@ class ScreenTranslatorService : AccessibilityService() {
             return false
         }
 
-        val isUp = code == KeyEvent.KEYCODE_VOLUME_UP
         when (event.action) {
             KeyEvent.ACTION_DOWN -> {
                 if (event.repeatCount == 0) {
-                    if (isUp) volUpHeld = true else volDownHeld = true
-                    if (volUpHeld && volDownHeld) {
-                        if (!comboFired) {
-                            comboFired = true
-                            onCombo()
-                        }
-                    } else {
-                        singleKeyRepeated = false
-                    }
-                } else if (!comboFired && !(volUpHeld && volDownHeld)) {
-                    // Кнопку утримують — плавно змінюємо гучність, як система.
-                    singleKeyRepeated = true
-                    adjustVolume(isUp)
+                    volDownHeld = true
+                    volDownRepeated = false
+                } else if (volDownHeld) {
+                    // Кнопку утримують — зменшуємо гучність, як система.
+                    volDownRepeated = true
+                    adjustVolume(false)
                 }
             }
 
             KeyEvent.ACTION_UP -> {
-                val wasCombo = comboFired || (volUpHeld && volDownHeld)
-                if (isUp) volUpHeld = false else volDownHeld = false
-                if (!wasCombo && !singleKeyRepeated) {
-                    // Коротке натискання: «вниз» — переклад, «вгору» — гучність.
-                    // Утримання «вниз» зменшує гучність (див. повтори в ACTION_DOWN).
-                    if (isUp) adjustVolume(true) else onCombo()
-                }
-                if (!volUpHeld && !volDownHeld) {
-                    comboFired = false
-                    singleKeyRepeated = false
-                }
+                // Коротке натискання (без утримання) — переклад або закрити переклад.
+                if (volDownHeld && !volDownRepeated) onTranslateKey()
+                resetKeys()
             }
         }
         return true
     }
 
     private fun resetKeys() {
-        volUpHeld = false
         volDownHeld = false
-        comboFired = false
-        singleKeyRepeated = false
+        volDownRepeated = false
     }
 
     private fun adjustVolume(up: Boolean) {
@@ -165,7 +145,7 @@ class ScreenTranslatorService : AccessibilityService() {
         }
     }
 
-    private fun onCombo() {
+    private fun onTranslateKey() {
         if (overlayView != null) {
             removeOverlay()
             return
