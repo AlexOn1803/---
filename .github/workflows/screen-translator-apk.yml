@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: screen-translator
@@ -34,3 +36,14 @@ jobs:
           name: ScreenTranslator-apk
           path: screen-translator/ScreenTranslator.apk
           if-no-files-found: error
+
+      - name: Commit APK to the branch
+        working-directory: .
+        run: |
+          mkdir -p apk
+          cp screen-translator/ScreenTranslator.apk apk/ScreenTranslator.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add apk/ScreenTranslator.apk
+          git commit -m "Update ScreenTranslator.apk [skip ci]" || exit 0
+          git push origin HEAD:${GITHUB_REF_NAME}
