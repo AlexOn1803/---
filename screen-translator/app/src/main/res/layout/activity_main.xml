@@ -25,11 +25,36 @@
             android:text="@string/subtitle"
             android:textSize="15sp" />
 
-        <!-- Крок 1: модель -->
+        <!-- Стан сесії -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:id="@+id/session_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/session_off"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btn_session"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/btn_stop" />
+        </LinearLayout>
+
+        <!-- Крок 1: модель -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
             android:background="@drawable/card_bg"
             android:orientation="vertical"
             android:padding="16dp">

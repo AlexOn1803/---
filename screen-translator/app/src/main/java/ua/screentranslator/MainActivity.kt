@@ -1,8 +1,11 @@
 package ua.screentranslator
 
+import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -22,6 +25,9 @@ class MainActivity : Activity() {
     private lateinit var serviceStatus: TextView
     private lateinit var downloadButton: Button
     private lateinit var testOutput: TextView
+    private lateinit var sessionStatus: TextView
+
+    private val sessionListener: (Boolean) -> Unit = { refreshSessionStatus() }
 
     private lateinit var translator: Translator
 
@@ -35,9 +41,21 @@ class MainActivity : Activity() {
         serviceStatus = findViewById(R.id.service_status)
         downloadButton = findViewById(R.id.btn_download)
         testOutput = findViewById(R.id.test_output)
+        sessionStatus = findViewById(R.id.session_status)
         val testInput = findViewById<EditText>(R.id.test_input)
 
         downloadButton.setOnClickListener { downloadModel() }
+
+        findViewById<Button>(R.id.btn_session).setOnClickListener {
+            SessionService.stop(this)
+            finishAndRemoveTask()
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
 
         findViewById<Button>(R.id.btn_accessibility).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -64,6 +82,23 @@ class MainActivity : Activity() {
                     testOutput.text = getString(R.string.model_failed, e.localizedMessage ?: e.toString())
                 }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Відкрили застосунок — перекладач активний (і лишається активним у фоні).
+        SessionService.start(this)
+        TranslatorState.addListener(sessionListener)
+        refreshSessionStatus()
+    }
+
+    override fun onStop() {
+        TranslatorState.removeListener(sessionListener)
+        super.onStop()
+    }
+
+    private fun refreshSessionStatus() {
+        sessionStatus.setText(if (TranslatorState.active) R.string.session_on else R.string.session_off)
     }
 
     override fun onResume() {

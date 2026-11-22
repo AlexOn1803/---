@@ -65,8 +65,18 @@ class ScreenTranslatorService : AccessibilityService() {
         powerManager = getSystemService(PowerManager::class.java)
     }
 
+    // Застосунок закрили — ховаємо переклад, якщо він на екрані.
+    private val stateListener: (Boolean) -> Unit = { active ->
+        if (!active) {
+            removeOverlay()
+            hideStatus()
+            resetKeys()
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+        TranslatorState.addListener(stateListener)
         translator = Translation.getClient(TranslatorConfig.options)
         recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
@@ -76,6 +86,7 @@ class ScreenTranslatorService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        TranslatorState.removeListener(stateListener)
         removeOverlay()
         hideStatus()
         translator?.close()
@@ -89,11 +100,11 @@ class ScreenTranslatorService : AccessibilityService() {
         val code = event.keyCode
         if (code != KeyEvent.KEYCODE_VOLUME_UP && code != KeyEvent.KEYCODE_VOLUME_DOWN) return false
 
-        // Під час дзвінка / рингтону та з вимкненим екраном нічого не перехоплюємо.
-        if (!powerManager.isInteractive || audioManager.mode != AudioManager.MODE_NORMAL) {
-            volUpHeld = false
-            volDownHeld = false
-            comboFired = false
+        // Застосунок закритий, дзвінок / рингтон або вимкнений екран — кнопки не чіпаємо.
+        if (!TranslatorState.active || !powerManager.isInteractive ||
+            audioManager.mode != AudioManager.MODE_NORMAL
+        ) {
+            resetKeys()
             return false
         }
 
@@ -128,6 +139,13 @@ class ScreenTranslatorService : AccessibilityService() {
             }
         }
         return true
+    }
+
+    private fun resetKeys() {
+        volUpHeld = false
+        volDownHeld = false
+        comboFired = false
+        singleKeyRepeated = false
     }
 
     private fun adjustVolume(up: Boolean) {
